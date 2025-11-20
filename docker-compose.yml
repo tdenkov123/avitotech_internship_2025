@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:18.1
+    image: postgres:17
     container_name: avito-reviewers-db
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-reviewers}
