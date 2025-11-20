@@ -19,6 +19,8 @@ CREATE TABLE pull_requests (
     name TEXT NOT NULL,
     author_id TEXT NOT NULL REFERENCES users(id),
     status TEXT NOT NULL DEFAULT 'OPEN',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    merged_at TIMESTAMPTZ,
     CHECK (status IN ('OPEN', 'MERGED'))
 );
 
