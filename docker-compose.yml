@@ -1,0 +1,49 @@
+services:
+  db:
+    image: postgres:18.1
+    container_name: avito-reviewers-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-reviewers}
+      POSTGRES_USER: ${POSTGRES_USER:-reviewer}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-reviewer}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-reviewer}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  migrate:
+    image: migrate/migrate:v4.19.0
+    depends_on:
+      db:
+        condition: service_healthy
+    command:
+      - "-path"
+      - "/migrations"
+      - "-database"
+      - "${DATABASE_URL:-postgres://reviewer:reviewer@db:5432/reviewers?sslmode=disable}"
+      - "up"
+    volumes:
+      - ./migrations:/migrations:ro
+    restart: "no"
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgres://reviewer:reviewer@db:5432/reviewers?sslmode=disable}
+      SERVER_PORT: ${SERVER_PORT:-8080}
+    ports:
+      - "${APP_PORT:-8080}:8080"
+
+volumes:
+  db-data:
