@@ -9,6 +9,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/tdenkov123/avitotech_internship_2025/internal/config"
+	"github.com/tdenkov123/avitotech_internship_2025/internal/http_server/middleware"
 )
 
 type Server struct {
@@ -25,6 +26,8 @@ func New(cfg config.Config, logger *zap.Logger) *Server {
 
 	engine := gin.New()
 	engine.Use(gin.Recovery())
+	engine.Use(middleware.RequestID())
+	engine.Use(middleware.Logging(logger))
 
 	engine.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
