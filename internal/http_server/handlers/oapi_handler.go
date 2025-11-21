@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -84,17 +85,55 @@ func (h *APIHandler) PostUsersSetIsActive(c *gin.Context) {
 }
 
 func toAPITeam(team domain.Team) openapi.Team {
-	return openapi.Team{}
+	members := make([]openapi.TeamMember, 0, len(team.Members))
+	for _, member := range team.Members {
+		members = append(members, openapi.TeamMember{
+			UserId:   member.UserID,
+			Username: member.Username,
+			IsActive: member.IsActive,
+		})
+	}
+	return openapi.Team{
+		TeamName: team.Name,
+		Members:  members,
+	}
 }
 
 func toAPIUser(user domain.User) openapi.User {
-	return openapi.User{}
+	return openapi.User{
+		UserId:   user.ID,
+		Username: user.Username,
+		TeamName: user.TeamName,
+		IsActive: user.IsActive,
+	}
 }
 
 func toAPIPullRequest(pr domain.PullRequest) openapi.PullRequest {
-	return openapi.PullRequest{}
+	created := pr.CreatedAt
+	var merged *time.Time
+	if pr.MergedAt != nil {
+		merged = pr.MergedAt
+	}
+	return openapi.PullRequest{
+		PullRequestId:     pr.ID,
+		PullRequestName:   pr.Name,
+		AuthorId:          pr.AuthorID,
+		Status:            openapi.PullRequestStatus(pr.Status),
+		AssignedReviewers: pr.AssignedReviewers,
+		CreatedAt:         &created,
+		MergedAt:          merged,
+	}
 }
 
 func toAPIPullRequestShort(items []domain.PullRequestShort) []openapi.PullRequestShort {
-	return []openapi.PullRequestShort{}
+	result := make([]openapi.PullRequestShort, 0, len(items))
+	for _, item := range items {
+		result = append(result, openapi.PullRequestShort{
+			PullRequestId:   item.ID,
+			PullRequestName: item.Name,
+			AuthorId:        item.AuthorID,
+			Status:          openapi.PullRequestShortStatus(item.Status),
+		})
+	}
+	return result
 }
