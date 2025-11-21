@@ -18,6 +18,11 @@ type APIHandler struct {
 	service *service.Service
 }
 
+type reassignRequest struct {
+	openapi.PostPullRequestReassignJSONRequestBody
+	OldReviewerID string `json:"old_reviewer_id"`
+}
+
 func NewAPIHandler(logger *zap.Logger, svc *service.Service) *APIHandler {
 	return &APIHandler{logger: logger, service: svc}
 }
@@ -93,15 +98,25 @@ func (h *APIHandler) PostPullRequestMerge(c *gin.Context) {
 }
 
 func (h *APIHandler) PostPullRequestReassign(c *gin.Context) {
-	var req openapi.PostPullRequestReassignJSONRequestBody
+	var req reassignRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		h.respondValidationError(c, err)
 		return
 	}
 
+	oldReviewerID := req.OldUserId
+	if oldReviewerID == "" {
+		oldReviewerID = req.OldReviewerID
+	}
+
+	if req.PullRequestId == "" || oldReviewerID == "" {
+		h.respondValidationError(c, errors.New("pull_request_id and old_user_id are required"))
+		return
+	}
+
 	result, err := h.service.ReassignReviewer(c.Request.Context(), service.ReassignInput{
 		PullRequestID: req.PullRequestId,
-		OldReviewerID: req.OldUserId,
+		OldReviewerID: oldReviewerID,
 	})
 	if err != nil {
 		h.handleError(c, err)
