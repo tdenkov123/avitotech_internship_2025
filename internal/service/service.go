@@ -344,17 +344,24 @@ func (s *Service) CreatePullRequest(ctx context.Context, input CreatePullRequest
 }
 
 func (s *Service) MergePullRequest(ctx context.Context, prID string) (domain.PullRequest, error) {
-	ct, err := s.db.Exec(ctx, `
-		UPDATE pull_requests
-		SET status = 'MERGED',
-			merged_at = COALESCE(merged_at, NOW())
-		WHERE id = $1
-	`, prID)
+	err := s.withTx(ctx, func(tx pgx.Tx) error {
+		ct, err := tx.Exec(ctx, `
+			UPDATE pull_requests
+			SET status = 'MERGED',
+			    merged_at = COALESCE(merged_at, NOW())
+			WHERE id = $1
+		`, prID)
+		if err != nil {
+			return err
+		}
+		if ct.RowsAffected() == 0 {
+			return domain.ErrPullRequestNotFound
+		}
+
+		return nil
+	})
 	if err != nil {
 		return domain.PullRequest{}, err
-	}
-	if ct.RowsAffected() == 0 {
-		return domain.PullRequest{}, domain.ErrPullRequestNotFound
 	}
 
 	pr, err := s.GetPullRequest(ctx, s.db, prID)
