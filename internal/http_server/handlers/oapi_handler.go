@@ -32,7 +32,7 @@ func (h *APIHandler) handleError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, domain.ErrTeamExists):
 		c.JSON(http.StatusBadRequest, newErrorResponse(openapi.TEAMEXISTS, err.Error()))
-	case errors.Is(err, domain.ErrTeamNotFound):
+	case errors.Is(err, domain.ErrTeamNotFound), errors.Is(err, domain.ErrUserNotFound), errors.Is(err, domain.ErrPullRequestNotFound):
 		c.JSON(http.StatusNotFound, newErrorResponse(openapi.NOTFOUND, err.Error()))
 	case errors.Is(err, domain.ErrPullRequestExists):
 		c.JSON(http.StatusConflict, newErrorResponse(openapi.PREXISTS, err.Error()))
