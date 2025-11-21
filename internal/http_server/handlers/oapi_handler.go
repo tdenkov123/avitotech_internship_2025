@@ -57,31 +57,128 @@ func newErrorResponse(code openapi.ErrorResponseErrorCode, message string) opena
 }
 
 func (h *APIHandler) PostPullRequestCreate(c *gin.Context) {
+	var req openapi.PostPullRequestCreateJSONRequestBody
+	if err := c.ShouldBindJSON(&req); err != nil {
+		h.respondValidationError(c, err)
+		return
+	}
 
+	pr, err := h.service.CreatePullRequest(c.Request.Context(), service.CreatePullRequestInput{
+		ID:       req.PullRequestId,
+		Name:     req.PullRequestName,
+		AuthorID: req.AuthorId,
+	})
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"pr": toAPIPullRequest(pr)})
 }
 
 func (h *APIHandler) PostPullRequestMerge(c *gin.Context) {
+	var req openapi.PostPullRequestMergeJSONRequestBody
+	if err := c.ShouldBindJSON(&req); err != nil {
+		h.respondValidationError(c, err)
+		return
+	}
 
+	pr, err := h.service.MergePullRequest(c.Request.Context(), req.PullRequestId)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"pr": toAPIPullRequest(pr)})
 }
 
 func (h *APIHandler) PostPullRequestReassign(c *gin.Context) {
+	var req openapi.PostPullRequestReassignJSONRequestBody
+	if err := c.ShouldBindJSON(&req); err != nil {
+		h.respondValidationError(c, err)
+		return
+	}
 
+	result, err := h.service.ReassignReviewer(c.Request.Context(), service.ReassignInput{
+		PullRequestID: req.PullRequestId,
+		OldReviewerID: req.OldUserId,
+	})
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"pr":          toAPIPullRequest(result.PullRequest),
+		"replaced_by": result.ReplacedBy,
+	})
 }
 
 func (h *APIHandler) PostTeamAdd(c *gin.Context) {
+	var req openapi.PostTeamAddJSONRequestBody
+	if err := c.ShouldBindJSON(&req); err != nil {
+		h.respondValidationError(c, err)
+		return
+	}
 
+	team := domain.Team{
+		Name:    req.TeamName,
+		Members: make([]domain.TeamMember, 0, len(req.Members)),
+	}
+	for _, member := range req.Members {
+		team.Members = append(team.Members, domain.TeamMember{
+			UserID:   member.UserId,
+			Username: member.Username,
+			IsActive: member.IsActive,
+		})
+	}
+
+	created, err := h.service.CreateTeam(c.Request.Context(), team)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"team": toAPITeam(created)})
 }
 
 func (h *APIHandler) GetTeamGet(c *gin.Context, params openapi.GetTeamGetParams) {
+	team, err := h.service.GetTeam(c.Request.Context(), params.TeamName)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
 
+	c.JSON(http.StatusOK, toAPITeam(team))
 }
 
 func (h *APIHandler) GetUsersGetReview(c *gin.Context, params openapi.GetUsersGetReviewParams) {
+	prs, err := h.service.GetUserReviews(c.Request.Context(), params.UserId)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
 
+	c.JSON(http.StatusOK, gin.H{
+		"user_id":       params.UserId,
+		"pull_requests": toAPIPullRequestShort(prs),
+	})
 }
 
 func (h *APIHandler) PostUsersSetIsActive(c *gin.Context) {
+	var req openapi.PostUsersSetIsActiveJSONRequestBody
+	if err := c.ShouldBindJSON(&req); err != nil {
+		h.respondValidationError(c, err)
+		return
+	}
 
+	user, err := h.service.SetUserActive(c.Request.Context(), req.UserId, req.IsActive)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"user": toAPIUser(user)})
 }
 
 func toAPITeam(team domain.Team) openapi.Team {
