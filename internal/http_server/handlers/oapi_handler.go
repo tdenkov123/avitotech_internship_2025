@@ -54,3 +54,47 @@ func newErrorResponse(code openapi.ErrorResponseErrorCode, message string) opena
 	resp.Error.Message = message
 	return resp
 }
+
+func (h *APIHandler) PostPullRequestCreate(c *gin.Context) {
+
+}
+
+func (h *APIHandler) PostPullRequestMerge(c *gin.Context) {
+
+}
+
+func (h *APIHandler) PostPullRequestReassign(c *gin.Context) {
+
+}
+
+func (h *APIHandler) PostTeamAdd(c *gin.Context) {
+
+}
+
+func (h *APIHandler) GetTeamGet(c *gin.Context, params openapi.GetTeamGetParams) {
+
+}
+
+func (h *APIHandler) GetUsersGetReview(c *gin.Context, params openapi.GetUsersGetReviewParams) {
+
+}
+
+func (h *APIHandler) PostUsersSetIsActive(c *gin.Context) {
+
+}
+
+func toAPITeam(team domain.Team) openapi.Team {
+	return openapi.Team{}
+}
+
+func toAPIUser(user domain.User) openapi.User {
+	return openapi.User{}
+}
+
+func toAPIPullRequest(pr domain.PullRequest) openapi.PullRequest {
+	return openapi.PullRequest{}
+}
+
+func toAPIPullRequestShort(items []domain.PullRequestShort) []openapi.PullRequestShort {
+	return []openapi.PullRequestShort{}
+}
