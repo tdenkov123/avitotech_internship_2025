@@ -23,6 +23,17 @@ type reassignRequest struct {
 	OldReviewerID string `json:"old_reviewer_id"`
 }
 
+type deactivateRequest struct {
+	TeamName string   `json:"team_name"`
+	UserIDs  []string `json:"user_ids"`
+}
+
+type apiReassignment struct {
+	PullRequestID string  `json:"pull_request_id"`
+	OldReviewerID string  `json:"old_reviewer_id"`
+	NewReviewerID *string `json:"new_reviewer_id"`
+}
+
 func NewAPIHandler(logger *zap.Logger, svc *service.Service) *APIHandler {
 	return &APIHandler{logger: logger, service: svc}
 }
@@ -40,7 +51,7 @@ func (h *APIHandler) handleError(c *gin.Context, err error) {
 		c.JSON(http.StatusBadRequest, newErrorResponse(openapi.TEAMEXISTS, err.Error()))
 	case errors.Is(err, domain.ErrTeamNotFound), errors.Is(err, domain.ErrUserNotFound), errors.Is(err, domain.ErrPullRequestNotFound):
 		c.JSON(http.StatusNotFound, newErrorResponse(openapi.NOTFOUND, err.Error()))
-	case errors.Is(err, domain.ErrPullRequestExists):
+	case errors.Is(err, domain.ErrPullRequestExists), errors.Is(err, domain.ErrUserHasOpenPR):
 		c.JSON(http.StatusConflict, newErrorResponse(openapi.PREXISTS, err.Error()))
 	case errors.Is(err, domain.ErrPullRequestMerged):
 		c.JSON(http.StatusConflict, newErrorResponse(openapi.PRMERGED, err.Error()))
@@ -48,6 +59,8 @@ func (h *APIHandler) handleError(c *gin.Context, err error) {
 		c.JSON(http.StatusConflict, newErrorResponse(openapi.NOTASSIGNED, err.Error()))
 	case errors.Is(err, domain.ErrNoCandidate):
 		c.JSON(http.StatusConflict, newErrorResponse(openapi.NOCANDIDATE, err.Error()))
+	case errors.Is(err, domain.ErrInvalidInput):
+		c.JSON(http.StatusBadRequest, newErrorResponse(openapi.NOTFOUND, err.Error()))
 	default:
 		h.logger.Error("unexpected error", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
@@ -196,6 +209,30 @@ func (h *APIHandler) PostUsersSetIsActive(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"user": toAPIUser(user)})
 }
 
+func (h *APIHandler) DeactivateTeamMembers(c *gin.Context) {
+	var req deactivateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		h.respondValidationError(c, err)
+		return
+	}
+	if req.TeamName == "" || len(req.UserIDs) == 0 {
+		h.respondValidationError(c, errors.New("team_name and user_ids are required"))
+		return
+	}
+
+	result, err := h.service.DeactivateTeamMembers(c.Request.Context(), req.TeamName, req.UserIDs)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"team":                 toAPITeam(result.Team),
+		"deactivated_user_ids": result.DeactivatedUsers,
+		"reassignments":        toAPIReassignments(result.Reassignments),
+	})
+}
+
 func toAPITeam(team domain.Team) openapi.Team {
 	members := make([]openapi.TeamMember, 0, len(team.Members))
 	for _, member := range team.Members {
@@ -245,6 +282,18 @@ func toAPIPullRequestShort(items []domain.PullRequestShort) []openapi.PullReques
 			PullRequestName: item.Name,
 			AuthorId:        item.AuthorID,
 			Status:          openapi.PullRequestShortStatus(item.Status),
+		})
+	}
+	return result
+}
+
+func toAPIReassignments(items []service.ReassignmentChange) []apiReassignment {
+	result := make([]apiReassignment, 0, len(items))
+	for _, item := range items {
+		result = append(result, apiReassignment{
+			PullRequestID: item.PullRequestID,
+			OldReviewerID: item.OldReviewerID,
+			NewReviewerID: item.NewReviewerID,
 		})
 	}
 	return result

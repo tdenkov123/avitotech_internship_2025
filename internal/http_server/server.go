@@ -38,6 +38,7 @@ func New(cfg config.Config, logger *zap.Logger, svc *service.Service) *Server {
 
 	apiHandler := handlers.NewAPIHandler(logger, svc)
 	openapi.RegisterHandlers(engine, apiHandler)
+	engine.POST("/team/deactivate", apiHandler.DeactivateTeamMembers)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.ServerPort,

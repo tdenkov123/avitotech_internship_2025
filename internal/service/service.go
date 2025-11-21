@@ -37,6 +37,18 @@ type ReassignResult struct {
 	ReplacedBy  string
 }
 
+type ReassignmentChange struct {
+	PullRequestID string
+	OldReviewerID string
+	NewReviewerID *string
+}
+
+type BulkDeactivateResult struct {
+	Team             domain.Team
+	DeactivatedUsers []string
+	Reassignments    []ReassignmentChange
+}
+
 type dbExecutor interface {
 	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
 	Query(context.Context, string, ...any) (pgx.Rows, error)
@@ -149,6 +161,139 @@ func (s *Service) SetUserActive(ctx context.Context, userID string, active bool)
 		return domain.User{}, err
 	}
 	return user, nil
+}
+
+func (s *Service) DeactivateTeamMembers(ctx context.Context, teamName string, userIDs []string) (BulkDeactivateResult, error) {
+	result := BulkDeactivateResult{}
+	if teamName == "" || len(userIDs) == 0 {
+		return result, domain.ErrInvalidInput
+	}
+
+	unique := make([]string, 0, len(userIDs))
+	seen := make(map[string]struct{}, len(userIDs))
+	for _, id := range userIDs {
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		unique = append(unique, id)
+	}
+	if len(unique) == 0 {
+		return result, domain.ErrInvalidInput
+	}
+	result.DeactivatedUsers = unique
+
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	err := s.withTx(ctx, func(tx pgx.Tx) error {
+		var exists bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM teams WHERE name = $1)`, teamName).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			return domain.ErrTeamNotFound
+		}
+
+		for _, id := range unique {
+			user, err := s.getUser(ctx, tx, id)
+			if err != nil {
+				return err
+			}
+			if user.TeamName != teamName {
+				return domain.ErrUserNotFound
+			}
+		}
+
+		for _, id := range unique {
+			if _, err := tx.Exec(ctx, `
+				UPDATE users
+				SET is_active = false
+				WHERE id = $1
+			`, id); err != nil {
+				return err
+			}
+		}
+
+		for _, id := range unique {
+			rows, err := tx.Query(ctx, `
+				SELECT pr.id
+				FROM pull_requests pr
+				JOIN pull_request_reviewers r ON r.pull_request_id = pr.id
+				WHERE r.reviewer_id = $1 AND pr.status = 'OPEN'
+			`, id)
+			if err != nil {
+				return err
+			}
+			var prIDs []string
+			for rows.Next() {
+				var prID string
+				if err := rows.Scan(&prID); err != nil {
+					rows.Close()
+					return err
+				}
+				prIDs = append(prIDs, prID)
+			}
+			if err := rows.Err(); err != nil {
+				rows.Close()
+				return err
+			}
+			rows.Close()
+
+			for _, prID := range prIDs {
+				assigned, err := s.listReviewers(ctx, tx, prID)
+				if err != nil {
+					return err
+				}
+				candidates, err := s.pickReplacementCandidates(ctx, tx, teamName, assigned, id)
+				if err != nil {
+					return err
+				}
+				var newReviewer *string
+				if len(candidates) > 0 {
+					choice := candidates[r.Intn(len(candidates))]
+					newReviewer = &choice
+					if _, err := tx.Exec(ctx, `
+						DELETE FROM pull_request_reviewers
+						WHERE pull_request_id = $1 AND reviewer_id = $2
+					`, prID, id); err != nil {
+						return err
+					}
+					if _, err := tx.Exec(ctx, `
+						INSERT INTO pull_request_reviewers (pull_request_id, reviewer_id)
+						VALUES ($1, $2)
+					`, prID, choice); err != nil {
+						return err
+					}
+				} else {
+					if _, err := tx.Exec(ctx, `
+						DELETE FROM pull_request_reviewers
+						WHERE pull_request_id = $1 AND reviewer_id = $2
+					`, prID, id); err != nil {
+						return err
+					}
+				}
+				result.Reassignments = append(result.Reassignments, ReassignmentChange{
+					PullRequestID: prID,
+					OldReviewerID: id,
+					NewReviewerID: newReviewer,
+				})
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return BulkDeactivateResult{}, err
+	}
+
+	team, err := s.GetTeam(ctx, teamName)
+	if err != nil {
+		return BulkDeactivateResult{}, err
+	}
+	result.Team = team
+	return result, nil
 }
 
 func (s *Service) CreatePullRequest(ctx context.Context, input CreatePullRequestInput) (domain.PullRequest, error) {
