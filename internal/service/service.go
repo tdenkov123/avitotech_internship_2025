@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"errors"
+	"math/rand"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -95,12 +97,53 @@ func (s *Service) getUser(ctx context.Context, q dbExecutor, userID string) (dom
 	return domain.User{}, nil
 }
 
-func (s *Service) getPullRequest(ctx context.Context, q dbExecutor, prID string) (domain.PullRequest, error) {
-	return domain.PullRequest{}, nil
+func (s *Service) GetPullRequest(ctx context.Context, q dbExecutor, prID string) (domain.PullRequest, error) {
+	var pr domain.PullRequest
+	err := q.QueryRow(ctx, `
+        SELECT id, name, author_id, status, created_at, merged_at
+        FROM pull_requests
+        WHERE id = $1
+    `, prID).Scan(&pr.ID, &pr.Name, &pr.AuthorID, &pr.Status, &pr.CreatedAt, &pr.MergedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.PullRequest{}, domain.ErrPullRequestNotFound
+		}
+		return domain.PullRequest{}, err
+	}
+
+	reviewers, err := s.listReviewers(ctx, q, prID)
+	if err != nil {
+		return domain.PullRequest{}, err
+	}
+	pr.AssignedReviewers = reviewers
+
+	return pr, nil
 }
 
 func (s *Service) listReviewers(ctx context.Context, q dbExecutor, prID string) ([]string, error) {
-	return []string{}, nil
+	rows, err := q.Query(ctx, `
+        SELECT reviewer_id
+        FROM pull_request_reviewers
+        WHERE pull_request_id = $1
+        ORDER BY reviewer_id
+    `, prID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var reviewers []string
+	for rows.Next() {
+		var reviewer string
+		if err := rows.Scan(&reviewer); err != nil {
+			return nil, err
+		}
+		reviewers = append(reviewers, reviewer)
+	}
+	if rows.Err() != nil {
+		return nil, rows.Err()
+	}
+	return reviewers, nil
 }
 
 func (s *Service) pickReviewers(ctx context.Context, q dbExecutor, teamName, excludeUser string, limit int) ([]string, error) {
