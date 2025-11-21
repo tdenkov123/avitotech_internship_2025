@@ -9,7 +9,10 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/tdenkov123/avitotech_internship_2025/internal/config"
+	openapi "github.com/tdenkov123/avitotech_internship_2025/internal/http_server/api"
+	"github.com/tdenkov123/avitotech_internship_2025/internal/http_server/handlers"
 	"github.com/tdenkov123/avitotech_internship_2025/internal/http_server/middleware"
+	"github.com/tdenkov123/avitotech_internship_2025/internal/service"
 )
 
 type Server struct {
@@ -19,7 +22,7 @@ type Server struct {
 	cfg    config.Config
 }
 
-func New(cfg config.Config, logger *zap.Logger) *Server {
+func New(cfg config.Config, logger *zap.Logger, svc *service.Service) *Server {
 	if cfg.LogLevel != "debug" {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -29,9 +32,12 @@ func New(cfg config.Config, logger *zap.Logger) *Server {
 	engine.Use(middleware.RequestID())
 	engine.Use(middleware.Logging(logger))
 
-	engine.GET("/health", func(c *gin.Context) {
+	engine.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
+
+	apiHandler := handlers.NewAPIHandler(logger, svc)
+	openapi.RegisterHandlers(engine, apiHandler)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.ServerPort,
