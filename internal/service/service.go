@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -40,6 +41,28 @@ type dbExecutor interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }
 
+func (s *Service) withTx(ctx context.Context, fn func(pgx.Tx) error) error {
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	if err := fn(tx); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == "23505"
+	}
+	return false
+}
+
 func (s *Service) CreateTeam(ctx context.Context, team domain.Team) (domain.Team, error) {
 	return domain.Team{}, nil
 }
@@ -66,14 +89,6 @@ func (s *Service) ReassignReviewer(ctx context.Context, input ReassignInput) (Re
 
 func (s *Service) GetUserReviews(ctx context.Context, userID string) ([]domain.PullRequestShort, error) {
 	return []domain.PullRequestShort{}, nil
-}
-
-func (s *Service) GetPullRequest(ctx context.Context, prID string) (domain.PullRequest, error) {
-	return domain.PullRequest{}, nil
-}
-
-func (s *Service) withTx(ctx context.Context, fn func(pgx.Tx) error) error {
-	return nil
 }
 
 func (s *Service) getUser(ctx context.Context, q dbExecutor, userID string) (domain.User, error) {
